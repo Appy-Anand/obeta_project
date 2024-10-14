@@ -7,8 +7,9 @@
    - Anaconda package manager
    - Github desktop
 
-2. Once anaconda has been setup, please install the following packages
-   - Pandas
-   - Matplotlib
+2. Once anaconda has been setup, please install the relevant packages using the command `
+   conda create --name obeta --file <location of requirements.txt>
+   `
+   - **NOTE** Please update the requirements.txt using command ` conda list -e > requirements.txt` if new packages are installed
 
 3. Download both CSVs and place them in the data folder as `product_data.csv` and `pick_data.csv`.

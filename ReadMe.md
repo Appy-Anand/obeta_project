@@ -13,3 +13,5 @@
    - **NOTE** Please update the requirements.txt using command ` conda list -e > requirements.txt` if new packages are installed
 
 3. Download both CSVs and place them in the data folder as `product_data.csv` and `pick_data.csv`.
+
+4. For ERD, [this](https://mermaid.js.org/syntax/entityRelationshipDiagram.html) tool can be explored: It allows to create diagrams as code.

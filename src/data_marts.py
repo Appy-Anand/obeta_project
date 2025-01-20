@@ -1,32 +1,34 @@
-import pandas as pd
-from enums import DataMartNames, CurationFileNames
-from utils import store_df_as_hyper
+import os
 from os import path, mkdir
-from constants import BASE_PATH
+
 import duckdb
+import pandas as pd
+
+from constants import BASE_PATH
+from enums import DataMartNames, CurationFileNames
 
 curation_path = path.join(BASE_PATH, "curation")
 if not path.exists(curation_path):
-    raise FileNotFoundError(
-        f"Curation data cannot be found. Expected curation data at location {BASE_PATH}/curation"
-    )
+    raise FileNotFoundError(f"Curation data cannot be found. Expected curation data at location {BASE_PATH}/curation")
 data_mart_path = path.join(BASE_PATH, "data_mart")
 if not path.exists(data_mart_path):
     mkdir(data_mart_path)
 
+common_drill_downs = ["product_group", "origin", "warehouse_section"]
 
-def total_pick_volume(pick_df: pd.DataFrame, d_date: pd.DataFrame):
+
+def total_pick_volume(f_order_picks: pd.DataFrame, d_date: pd.DataFrame):
+    print("-" * 10)
+    print("Starting to process function: total_pick_volume")
     global data_mart_path
-
-    agg_df = duckdb.sql(
-        """
+    agg_df = duckdb.sql("""
             WITH agg_cte AS (
                 SELECT 
                     pick_date,
                     sum(pick_volume) AS pick_volume
                 FROM
-                    pick_df
-                GROUP BY pick_df.pick_date
+                    f_order_picks
+                GROUP BY f_order_picks.pick_date
             )
             SELECT
                 d_date.date,
@@ -34,90 +36,67 @@ def total_pick_volume(pick_df: pd.DataFrame, d_date: pd.DataFrame):
                 d_date.week,
                 d_date.month,
                 d_date.quarter,
-                d_date.year_half
+                d_date.year_half,
+                d_date.year
             FROM
-                d_date
-            LEFT JOIN
                 agg_cte
+            LEFT JOIN
+                d_date
             ON
                 d_date.date == agg_cte.pick_date
             ORDER BY d_date.date
-        """
-    ).df()
-    agg_df.to_parquet(path.join(data_mart_path, DataMartNames.total_pick_volume))
-    store_df_as_hyper(
-        df=agg_df,
-        table_name=DataMartNames.total_pick_volume,
-        location=data_mart_path,
-    )
+        """).df()
+    total_pick_volume_path = path.join(data_mart_path, "total_pick_volume")
+    if not path.exists(total_pick_volume_path):
+        os.mkdir(total_pick_volume_path)
+    agg_df.to_parquet(path.join(total_pick_volume_path, "total_pick_volume.parquet"))
+    for drill_down in common_drill_downs:
+        print(f"Currently processing drill down: {drill_down}")
+        sql_script = f"""
+                        WITH agg_cte AS (
+                            SELECT 
+                                pick_date,
+                                {drill_down},
+                                sum(pick_volume) AS pick_volume
+                            FROM
+                                f_order_picks
+                            GROUP BY 1, 2
+                        )
+                        SELECT
+                            d_date.date,
+                            {drill_down},
+                            coalesce(agg_cte.pick_volume, 0) as pick_volume,
+                            d_date.week,
+                            d_date.month,
+                            d_date.quarter,
+                            d_date.year_half,
+                            d_date.year
+                        FROM
+                            agg_cte
+                        LEFT JOIN
+                            d_date
+                        ON
+                            d_date.date == agg_cte.pick_date
+                        ORDER BY d_date.date
+            """
+        agg_df = duckdb.sql(sql_script).df()
+        agg_df.to_parquet(path.join(total_pick_volume_path, f"total_pick_volume_{drill_down}.parquet"))
+        print(f"Done processing drill down: {drill_down}")
+    print("Processed function: total_pick_volume")
 
 
-def pick_volume_per_product_group(
-    d_date: pd.DataFrame,
-    pick_df: pd.DataFrame,
-    product_df: pd.DataFrame,
-):
+def total_orders_processed(f_order_picks: pd.DataFrame, d_date: pd.DataFrame):
+    print("-" * 10)
+    print("Starting to process function: total_orders_processed")
     global data_mart_path
-    agg_df = duckdb.sql(
-        """
-            WITH agg_cte AS (
-                SELECT
-                    pick_df.pick_date,
-                    product_df.product_group,
-                    sum(pick_volume) AS pick_volume
-                FROM
-                    pick_df
-                LEFT JOIN
-                    product_df
-                ON
-                    pick_df.product_id == product_df.product_id
-                GROUP BY
-                    pick_df.pick_date,
-                    product_df.product_group
-            )
-            SELECT
-                d_date.date,
-                product_df.product_group,
-                coalesce(agg_cte.pick_volume, 0) AS pick_volume,
-                d_date.week,
-                d_date.month,
-                d_date.quarter,
-                d_date.year_half
-            FROM
-                d_date
-            CROSS JOIN (SELECT DISTINCT(product_group) FROM product_df) AS product_df
-            LEFT JOIN
-                agg_cte
-            ON
-                d_date.date == agg_cte.pick_date
-                AND product_df.product_group = agg_cte.product_group
-            ORDER BY d_date.date
-            
-        """
-    ).df()
-
-    agg_df.to_parquet(
-        path.join(data_mart_path, DataMartNames.pick_volume_per_product_group)
-    )
-    store_df_as_hyper(
-        df=agg_df,
-        table_name=DataMartNames.pick_volume_per_product_group,
-        location=data_mart_path,
-    )
-
-
-def order_volume(pick_df: pd.DataFrame, d_date: pd.DataFrame):
-    global data_mart_path
-
-    agg_df = duckdb.sql(
-        """
-            WITH agg_cte AS (
+    agg_df = duckdb.sql("""
+           WITH agg_cte AS (
                 SELECT 
                     pick_date,
                     COUNT(DISTINCT(sk_order_id)) AS order_volume
                 FROM
-                    pick_df
-                GROUP BY pick_df.pick_date
+                    f_order_picks
+                GROUP BY f_order_picks.pick_date
             )
             SELECT
                 d_date.date,
@@ -125,7 +104,8 @@ def order_volume(pick_df: pd.DataFrame, d_date: pd.DataFrame):
                 d_date.week,
                 d_date.month,
                 d_date.quarter,
-                d_date.year_half
+                d_date.year_half,
+                d_date.year
             FROM
                 d_date
             LEFT JOIN
@@ -134,33 +114,419 @@ def order_volume(pick_df: pd.DataFrame, d_date: pd.DataFrame):
                 d_date.date == agg_cte.pick_date
             ORDER BY d_date.date
 
-        """
-    ).df()
-    agg_df.to_parquet(path.join(data_mart_path, DataMartNames.order_volume))
-    store_df_as_hyper(
-        df=agg_df,
-        table_name=DataMartNames.order_volume,
-        location=data_mart_path,
+        """).df()
+    total_orders_processed_path = path.join(data_mart_path, "total_orders_processed")
+    if not path.exists(total_orders_processed_path):
+        os.mkdir(total_orders_processed_path)
+    agg_df.to_parquet(path.join(total_orders_processed_path, "total_orders_processed.parquet"))
+    for drill_down in common_drill_downs:
+        print(f"Currently processing drill down: {drill_down}")
+        sql_script = f"""
+                   WITH agg_cte AS (
+                       SELECT 
+                           pick_date,
+                           {drill_down},
+                           COUNT(DISTINCT(sk_order_id)) AS order_volume
+                       FROM
+                           f_order_picks
+                       GROUP BY f_order_picks.pick_date, {drill_down}
+                   )
+                   SELECT
+                       d_date.date,
+                       {drill_down},
+                       coalesce(agg_cte.order_volume, 0) as order_volume,
+                       d_date.week,
+                       d_date.month,
+                       d_date.quarter,
+                       d_date.year_half,
+                       d_date.year
+                   FROM
+                       d_date
+                   LEFT JOIN
+                       agg_cte
+                   ON
+                       d_date.date == agg_cte.pick_date
+                   ORDER BY d_date.date
+
+               """
+        agg_df = duckdb.sql(sql_script).df()
+        agg_df.to_parquet(path.join(total_orders_processed_path, f"total_orders_processed_{drill_down}.parquet"))
+        print(f"Done processing drill down: {drill_down}")
+    print("Processed function: total_orders_processed")
+
+
+def pick_errors(f_order_picks: pd.DataFrame, f_pick_errors: pd.DataFrame, d_date: pd.DataFrame):
+    print("-" * 10)
+    print("Starting to process function: pick_errors")
+    global data_mart_path
+    agg_df = duckdb.sql("""
+            with total_errors_cte as (
+            select 
+                d_date.date,
+                d_date.week,
+                d_date.month,
+                count(*) as total_errors
+            from f_pick_errors as pe
+            left join d_date
+                on pe.pick_date = d_date.date
+            group by 1, 2, 3
+        ),
+        total_picks_cte as (
+            select 
+                d_date.date,
+                d_date.week,
+                d_date.month,
+                count(*) as total_picks
+            from f_order_picks as op
+            left join d_date
+                on op.pick_date = d_date.date
+            group by 1, 2, 3
+        )
+        select 
+            total_errors_cte.*,
+            total_picks_cte.total_picks 
+        from total_errors_cte
+        left join total_picks_cte
+        on total_errors_cte.date = total_picks_cte.date
+        and total_errors_cte.week = total_picks_cte.week
+        and total_errors_cte.month = total_picks_cte.month;
+        
+       
+        """).df()
+    pick_errors_path = path.join(data_mart_path, "pick_errors")
+    if not path.exists(pick_errors_path):
+        os.mkdir(pick_errors_path)
+    agg_df.to_parquet(path.join(pick_errors_path, "pick_errors.parquet"))
+
+    for drill_down in common_drill_downs:
+        print(f"Currently processing drill down: {drill_down}")
+        sql_script = f"""
+            with total_errors_cte as (
+                select 
+                    d_date.date,
+                    d_date.week,
+                    d_date.month,
+                    pe.{drill_down},
+                    count(*) as total_errors
+                from f_pick_errors as pe
+                left join d_date
+                    on pe.pick_date = d_date.date
+                group by 1, 2, 3, 4
+            ),
+            total_picks_cte as (
+                select 
+                    d_date.date,
+                    d_date.week,
+                    d_date.month,
+                    op.{drill_down},
+                    count(*) as total_picks
+                from f_order_picks as op
+                left join d_date
+                    on op.pick_date = d_date.date
+                group by 1, 2, 3, 4
+            )
+            select 
+                total_errors_cte.*,
+                total_picks_cte.total_picks 
+            from total_errors_cte
+            left join total_picks_cte
+            on total_errors_cte.date = total_picks_cte.date
+            and total_errors_cte.week = total_picks_cte.week
+            and total_errors_cte.month = total_picks_cte.month
+            and total_errors_cte.{drill_down} = total_picks_cte.{drill_down};
+
+            """
+        agg_df = duckdb.sql(sql_script).df()
+        agg_df.to_parquet(path.join(pick_errors_path, f"pick_errors_{drill_down}.parquet"))
+        print(f"Done processing drill down: {drill_down}")
+    print("Processed function: pick_errors")
+
+
+def top_n_products_weekly(f_order_picks: pd.DataFrame, d_date: pd.DataFrame):
+    print("-" * 10)
+    print("Starting to process function: top_n_products_weekly")
+    global data_mart_path
+    n = 10
+    agg_df = duckdb.sql(f"""
+         with total_picks_cte as (
+        select 
+            d_date.week,
+            product_id,
+            count(*) as total_picks
+        from f_order_picks
+        left join d_date
+            on f_order_picks.pick_date = d_date.date
+        group by 1, 2
+    ),
+    ranked_picks_cte as (
+        select 
+            total_picks_cte.*,
+            row_number() over (partition by week order by total_picks desc) as rank
+        from total_picks_cte
     )
+    select 
+        week,
+        product_id,
+        total_picks
+    from ranked_picks_cte
+    where rank <= {n}
+        """).df()
+    top_n_products_weekly_path = path.join(data_mart_path, "top_n_products_weekly")
+    if not path.exists(top_n_products_weekly_path):
+        os.mkdir(top_n_products_weekly_path)
+    agg_df.to_parquet(path.join(top_n_products_weekly_path, "top_n_products_weekly.parquet"))
+
+    for drill_down in common_drill_downs:
+        print(f"Currently processing drill down: {drill_down}")
+        sql_script = f"""
+               with total_picks_cte as (
+                   select 
+                       d_date.week,
+                       product_id,
+                       {drill_down},
+                       count(*) as total_picks
+                   from f_order_picks
+                   left join d_date
+                       on f_order_picks.pick_date = d_date.date
+                   group by 1, 2, 3
+               ),
+               ranked_picks_cte as (
+                   select 
+                       total_picks_cte.*,
+                       row_number() over (partition by week, {drill_down} order by total_picks desc) as rank
+                   from total_picks_cte
+               )
+               select 
+                   week,
+                   product_id,
+                   {drill_down},
+                   total_picks
+               from ranked_picks_cte
+               where rank <= {n}
+                """
+        agg_df = duckdb.sql(sql_script).df()
+        agg_df.to_parquet(path.join(top_n_products_weekly_path, f"top_n_products_weekly_{drill_down}.parquet"))
+        print(f"Done processing drill down: {drill_down}")
+    print("Processed function: top_n_products_weekly")
 
 
-def binned_order_volume(pick_df: pd.DataFrame, d_date: pd.DataFrame):
-    raw_order_df = duckdb.sql(
-        """
+def avg_products_picked_per_order(f_order_picks: pd.DataFrame, d_date: pd.DataFrame):
+    print("-" * 10)
+    print("Starting to process function: avg_products_picked_per_order")
+    global data_mart_path
+    agg_df = duckdb.sql("""
+        with order_distribution_cte as (
+            select 
+                sk_order_id,
+                min(pick_date) as order_date,
+                count(distinct product_id) as unique_product_count
+            from f_order_picks
+            group by 1
+        ),
+        daily_distribution as (
+            select 
+                d_date.week,
+                avg(unique_product_count) as avg_products_picked_per_order
+            from order_distribution_cte
+            left join d_date
+                on order_distribution_cte.order_date = d_date.date
+            group by 1
+            order by 1 asc
+        )
+        select 
+            *
+        from daily_distribution
+        """).df()
+    avg_products_picked_per_order_path = path.join(data_mart_path, "avg_products_picked_per_order")
+    if not path.exists(avg_products_picked_per_order_path):
+        os.mkdir(avg_products_picked_per_order_path)
+    agg_df.to_parquet(path.join(avg_products_picked_per_order_path, "avg_products_picked_per_order.parquet"))
+    print("Processed function: avg_products_picked_per_order")
+
+
+def order_mix_per_origin(f_order_picks: pd.DataFrame, d_date: pd.DataFrame):
+    print("-" * 10)
+    print("Starting to process function: order_mix_per_origin")
+    global data_mart_path
+    agg_df = duckdb.sql("""
+            WITH cte_48 AS (
+                SELECT 
+                    d_date.week,
+                    COUNT(DISTINCT(sk_order_id)) AS order_volume
+                FROM
+                    f_order_picks
+                left join d_date
+                    on f_order_picks.pick_date = d_date.date
+                where
+                    f_order_picks.origin = '48'
+                GROUP BY 1
+            ),
+            cte_46 AS (
+                SELECT 
+                    d_date.week,
+                    COUNT(DISTINCT(sk_order_id)) AS order_volume
+                FROM
+                    f_order_picks
+                left join d_date
+                    on f_order_picks.pick_date = d_date.date
+                where
+                    f_order_picks.origin = '46'
+                GROUP BY 1
+            ),
+            all_orders as ( 
+                SELECT
+                    COALESCE(cte_48.week, cte_46.week) as week,
+                    COALESCE(cte_48.order_volume, 0) as order_volume_48,
+                    COALESCE(cte_46.order_volume, 0) as order_volume_46,
+                    cte_48.order_volume + cte_46.order_volume as total_order_volume,
+                    round(cte_48.order_volume / (cte_48.order_volume + cte_46.order_volume), 4) * 100 as order_percentage_48,
+                    round(cte_46.order_volume / (cte_48.order_volume + cte_46.order_volume), 4) * 100 as order_percentage_46
+                FROM
+                    cte_48
+                FULL OUTER JOIN
+                    cte_46
+                ON
+                    cte_48.week = cte_46.week
+            )
+            select
+                all_orders.*,
+                case when order_volume_48 > 0 then round(order_volume_46 / order_volume_48, 2) else 0 end as ratio_46_48,
+                case when order_volume_46 > 0 then round(order_volume_48 / order_volume_46, 2) else 0 end as ratio_48_46
+            from
+                all_orders
+        """).df()
+    order_mix_per_origin_path = path.join(data_mart_path, "order_mix_per_origin")
+    if not path.exists(order_mix_per_origin_path):
+        os.mkdir(order_mix_per_origin_path)
+    agg_df.to_parquet(path.join(order_mix_per_origin_path, "order_mix_per_origin.parquet"))
+    print("Processed function: order_mix_per_origin")
+
+
+def warehouse_utilization_per_section(d_date: pd.DataFrame, f_order_picks: pd.DataFrame, ):
+    print("-" * 10)
+    print("Starting to process function: warehouse_utilization_per_section")
+    global data_mart_path
+    agg_df = duckdb.sql("""
+            WITH section_agg AS (
+                SELECT 
+                    d_date.week,
+                    warehouse_section,
+                    sum(pick_volume) AS pick_volume
+                FROM
+                    f_order_picks
+                LEFT JOIN
+                    d_date
+                on f_order_picks.pick_date = d_date.date
+                GROUP BY 1, 2
+            ),
+            total_agg AS (
+                SELECT 
+                    d_date.week,
+                    sum(pick_volume) AS pick_volume
+                FROM
+                    f_order_picks
+                LEFT JOIN
+                    d_date
+                on f_order_picks.pick_date = d_date.date
+                GROUP BY 1
+            )
+            select 
+                total_agg.week,
+                section_agg.warehouse_section,
+                (round(
+                    coalesce(section_agg.pick_volume, 0) / total_agg.pick_volume,
+                    4 
+                ) * 100) as section_utilization
+            from total_agg
+            left join section_agg
+            on total_agg.week = section_agg.week
+            order by 1, 2 desc
+        """).df()
+    warehouse_utilization_per_section_path = path.join(data_mart_path, "warehouse_utilization_per_section")
+    if not path.exists(warehouse_utilization_per_section_path):
+        os.mkdir(warehouse_utilization_per_section_path)
+    agg_df.to_parquet(path.join(warehouse_utilization_per_section_path, "warehouse_utilization_per_section.parquet"))
+    print("Processed function: pick_throughput")
+
+
+def pick_throughput(f_order_picks: pd.DataFrame, d_date: pd.DataFrame):
+    print("-" * 10)
+    print("-" * 10)
+    print("-" * 10)
+    print("Starting to process function: pick_throughput")
+    global data_mart_path
+    agg_df = duckdb.sql("""
+            WITH hourly_agg_cte AS (
+                SELECT 
+                    pick_date,
+                    hour(f_order_picks.pick_timestamp) as pick_hour,
+                    sum(pick_volume) AS pick_volume
+                FROM
+                    f_order_picks
+                GROUP BY 1, 2
+            ), 
+            weekly_avg as (
+                select 
+                    d_date.week,
+                    round(avg(pick_volume), 2) as weekly_pick_throughput_avg
+                from hourly_agg_cte
+                left join d_date
+                    on hourly_agg_cte.pick_date = d_date.date
+                group by 1
+            )
+            select * from weekly_avg
+        """).df()
+    pick_throughput_path = path.join(data_mart_path, "pick_throughput")
+    if not path.exists(pick_throughput_path):
+        os.mkdir(pick_throughput_path)
+    agg_df.to_parquet(path.join(pick_throughput_path, "pick_throughput.parquet"))
+    print("Processed function: pick_throughput without individual. Starting drill downs")
+    for drill_down in common_drill_downs:
+        print(f"Currently processing drill down: {drill_down}")
+        sql_script = f"""
+                        WITH hourly_agg_cte AS (
+                            SELECT 
+                                pick_date,
+                                hour(f_order_picks.pick_timestamp) as pick_hour,
+                                {drill_down},
+                                sum(pick_volume) AS pick_volume
+                            FROM
+                                f_order_picks
+                            GROUP BY 1, 2, 3
+                        ), 
+                        weekly_avg as (
+                            select 
+                                d_date.week,
+                                {drill_down},
+                                round(avg(pick_volume), 2) as weekly_pick_throughput_avg
+                            from hourly_agg_cte
+                            left join d_date
+                                on hourly_agg_cte.pick_date = d_date.date
+                            group by 1, 2
+                        )
+                        select * from weekly_avg
+            """
+        agg_df = duckdb.sql(sql_script).df()
+        agg_df.to_parquet(path.join(pick_throughput_path, f"pick_throughput_{drill_down}.parquet"))
+        print(f"Done processing drill down: {drill_down}")
+    print("Processed function: pick_throughput")
+
+def binned_order_volume(f_order_picks: pd.DataFrame, d_date: pd.DataFrame):
+    print("-" * 10)
+    print("Starting to process function: binned_order_volume")
+    raw_order_df = duckdb.sql("""
         select
             pick_date,
             sk_order_id,
             sum(pick_volume) as pick_volume,
-        from pick_df
+        from f_order_picks
         group by 1, 2
-        """
-    ).df()
+        """).df()
     bins = [0, 50, 150, 350, 600, 900, 200000]
     labels = ["mini", "small", "medium", "large", "extra_large", "extreme"]
     labels_df = pd.DataFrame({"bins": labels})
     raw_order_df["bins"] = pd.cut(raw_order_df["pick_volume"], bins=bins, labels=labels)
-    time_series_df = duckdb.sql(
-        """
+    time_series_df = duckdb.sql("""
         with agg_cte as(
             select
                 pick_date,
@@ -184,32 +550,24 @@ def binned_order_volume(pick_df: pd.DataFrame, d_date: pd.DataFrame):
         on 
             d_date.date == agg_cte.pick_date
             and labels_df.bins == agg_cte.bins
-        """
-    ).df()
+        """).df()
     time_series_df.rename({"bins": "category"})
-    time_series_df.to_parquet(
-        path.join(data_mart_path, DataMartNames.binned_order_volume)
-    )
-    store_df_as_hyper(
-        df=time_series_df,
-        table_name=DataMartNames.binned_order_volume,
-        location=data_mart_path,
-    )
+    time_series_df.to_parquet(path.join(data_mart_path, DataMartNames.binned_order_volume))
+    print("Processed function: binned_order_volume")
 
 
-def weekly_zscore_distribution(
-    pick_df: pd.DataFrame, d_date: pd.DataFrame, z_score_group: str = "week"
-):
-    agg_df = duckdb.sql(
-        f"""
+def weekly_zscore_distribution(f_order_picks: pd.DataFrame, d_date: pd.DataFrame, z_score_group: str = "week"):
+    print("-" * 10)
+    print("Starting to process function: weekly_zscore_distribution")
+    agg_df = duckdb.sql(f"""
         with orders as (
             select
-                pick_df.sk_order_id,
+                f_order_picks.sk_order_id,
                 d_date.{z_score_group},
-                sum(pick_df.pick_volume) as pick_volume
-            from pick_df
+                sum(f_order_picks.pick_volume) as pick_volume
+            from f_order_picks
             left join d_date
-                on pick_df.pick_date == d_date.date
+                on f_order_picks.pick_date == d_date.date
             group by 1, 2   
         ),
         order_stats_for_agg_period as (
@@ -229,321 +587,38 @@ def weekly_zscore_distribution(
             on orders.{z_score_group} == order_stats_for_agg_period.{z_score_group}
         )
         select * from z_score_agg order by {z_score_group};
-        """
-    ).df()
-    agg_df.to_parquet(
-        path.join(data_mart_path, DataMartNames.weekly_zscore_distribution)
-    )
-    store_df_as_hyper(
-        df=agg_df,
-        table_name=DataMartNames.weekly_zscore_distribution,
-        location=data_mart_path,
-    )
-
-
-def error_rate_per_warehouse_section(
-    pick_df: pd.DataFrame,
-    error_df: pd.DataFrame,
-    d_date: pd.DataFrame,
-    d_warehouse_section: pd.DataFrame,
-):
-    agg_df = duckdb.sql(
-        """
-        with date_warehouse_cross as (
-            select
-                *
-            from d_date
-            cross join 
-                (select distinct (pick_reference) as warehouse_section from d_warehouse_section where pick_reference != '(nicht vorhanden)')
-        ),
-        errors as (
-            select
-                date_warehouse_cross.date,
-                date_warehouse_cross.warehouse_section,
-                count(*) as error_count                
-            from date_warehouse_cross
-            left join
-                error_df
-            on date_warehouse_cross.date = error_df.pick_date
-            group by 1, 2
-        ),
-        picks as (
-            select
-                date_warehouse_cross.date,
-                date_warehouse_cross.warehouse_section,
-                count(*) as total_picks                
-            from date_warehouse_cross
-            left join
-                pick_df
-            on date_warehouse_cross.date = pick_df.pick_date
-            group by 1, 2
-        ),
-        result as (
-            select
-                errors.date,
-                errors.warehouse_section,
-                errors.error_count,
-                picks.total_picks,
-                d_date.week,
-                d_date.month,
-                d_date.quarter,
-                d_date.year_half,
-                d_date.year
-            from errors
-            left join picks
-            on 
-                errors.date = picks.date
-                and errors.warehouse_section = picks.warehouse_section
-            left join d_date
-            on 
-                errors.date = d_date.date
-        )
-        select * from result
-        """
-    ).df()
-    agg_df.to_parquet(
-        path.join(data_mart_path, DataMartNames.error_rate_per_warehouse_section)
-    )
-    store_df_as_hyper(
-        df=agg_df,
-        table_name=DataMartNames.error_rate_per_warehouse_section,
-        location=data_mart_path,
-    )
-
-
-def template_function(
-        d_date: pd.DataFrame,
-        f_pick_errors: pd.DataFrame,
-):
-    """
-
-    """
-    datamart_name = ""
-    datamart_name = datamart_name + ".parquet"
-    sql_script = """
-    """
-    agg_df = duckdb.sql(sql_script).df()
-    agg_df.to_parquet(
-        path.join(data_mart_path, datamart_name)
-    )
-    store_df_as_hyper(
-        df=agg_df,
-        table_name=datamart_name,
-        location=data_mart_path,
-    )
-
-def order_mix(
-        d_date: pd.DataFrame,
-        f_pick_errors: pd.DataFrame,
-):
-    """
-
-    """
-    datamart_name = "order_mix"
-    datamart_name = datamart_name + ".parquet"
-    sql_script = """
-    select
-        count(order_number),
-        origin
-    f_order_picks
-    """
-    agg_df = duckdb.sql(sql_script).df()
-    agg_df.to_parquet(
-        path.join(data_mart_path, datamart_name)
-    )
-    store_df_as_hyper(
-        df=agg_df,
-        table_name=datamart_name,
-        location=data_mart_path,
-    )
-
-def total_orders_processed(
-        d_date: pd.DataFrame,
-        f_order_picks: pd.DataFrame,
-):
-    """
-
-    """
-    datamart_name = "total_orders_processed"
-    datamart_name = datamart_name + ".parquet"
-    sql_script = """
-    SELECT 
-        COUNT(DISTINCT order_number) AS total_orders_processed,
-        d_date.date,d_date.week
-    FROM f_order_picks
-    LEFT JOIN d_date
-    ON f_order_picks.pick_date = d_date.date
-    GROUP BY d_date.week ,d_date.date
-    """
-    agg_df = duckdb.sql(sql_script).df()
-    agg_df.to_parquet(
-        path.join(data_mart_path, datamart_name)
-    )
-    store_df_as_hyper(
-        df=agg_df,
-        table_name=datamart_name,
-        location=data_mart_path,
-    )
-
-def top_10_products(
-        d_date: pd.DataFrame,
-        f_order_picks: pd.DataFrame,
-):
-    """
-
-    """
-    datamart_name = "top_10_products"
-    datamart_name = datamart_name + ".parquet"
-    sql_script = """
- SELECT
-    f.product_id,
-    sum(pick_volume   ) * 100/ (SELECT COUNT(*) FROM f_order_picks) AS top_products,
-    d.week
-FROM f_order_picks AS f
-LEFT JOIN d_date AS d
-    ON f.pick_date = d.date
-GROUP BY
-    f.product_id,
-    d.week
-ORDER BY
-    top_products DESC
-    """
-    agg_df = duckdb.sql(sql_script).df()
-    agg_df.to_parquet(
-        path.join(data_mart_path, datamart_name)
-    )
-    store_df_as_hyper(
-        df=agg_df,
-        table_name=datamart_name,
-        location=data_mart_path,
-    )
-
-# def warehouse_utilization_per_section(
-#         d_date: pd.DataFrame,
-#         f_order_picks: pd.DataFrame,
-# ):
-#     """
-#
-#     """
-#     datamart_name = "warehouse_utilization_per_section"
-#     datamart_name = datamart_name + ".parquet"
-#     sql_script = """
-#
-#
-#     """
-#     agg_df = duckdb.sql(sql_script).df()
-#     agg_df.to_parquet(
-#         path.join(data_mart_path, datamart_name)
-#     )
-#     store_df_as_hyper(
-#         df=agg_df,
-#         table_name=datamart_name,
-#         location=data_mart_path,
-#     )
-
-#
-# def pick_error_per_warehouse_sections(
-#         d_date: pd.DataFrame,
-#         f_pick_errors: pd.DataFrame,
-#         f_order_picks: pd.DataFrame,
-# ):
-#     """
-#     week
-#     month
-#     warehouse_section
-#     total_errors
-#     total_picks
-#     """
-#     datamart_name = "pick_error_per_warehouse_sections"
-#     datamart_name = datamart_name + ".parquet"
-#     sql_script = """
-#     with total_errors_cte as (
-#         select
-#             d_date.week,
-#             d_date.month,
-#             pe.warehouse_section,
-#             count(*) as total_errors
-#         from f_pick_errors as pe
-#         left join d_date
-#             on pe.pick_date = d_date.date
-#         group by 1, 2, 3
-#     ),
-#     total_picks_cte as (
-#         select
-#             d_date.week,
-#             d_date.month,
-#             op.warehouse_section,
-#             count(*) as total_picks
-#         from f_order_picks as op
-#         left join d_date
-#             on op.pick_date = d_date.date
-#         group by 1, 2, 3
-#     )
-#     select
-#         total_errors_cte.*,
-#         total_picks_cte.total_picks
-#     from total_errors_cte
-#     left join total_picks_cte
-#     on total_errors_cte.week = total_picks_cte.week
-#     and total_errors_cte.month = total_picks_cte.month
-#     and total_errors_cte.warehouse_section = total_picks_cte.warehouse_section;
-#
-#     """
-#     agg_df = duckdb.sql(sql_script).df()
-#     agg_df.to_parquet(
-#         path.join(data_mart_path, datamart_name)
-#     )
-#     store_df_as_hyper(
-#         df=agg_df,
-#         table_name=datamart_name,
-#         location=data_mart_path,
-#     )
+        """).df()
+    agg_df.to_parquet(path.join(data_mart_path, DataMartNames.weekly_zscore_distribution))
+    print("Processed function: weekly_zscore_distribution")
 
 if __name__ == "__main__":
-    # Read Curation Data
-    f_order_picks = pd.read_parquet(
-        path.join(curation_path, CurationFileNames.f_order_picks)
-    )
+    print("Reading data: f_order_picks")
+    f_order_picks = pd.read_parquet(path.join(curation_path, CurationFileNames.f_order_picks))
+    print("Reading data: d_date")
     d_date = pd.read_parquet(path.join(curation_path, CurationFileNames.d_date))
-    d_product_details = pd.read_parquet(
-        path.join(curation_path, CurationFileNames.d_product_details)
-    )
-    d_warehouse_section = pd.read_parquet(
-        path.join(curation_path, CurationFileNames.d_warehouse_section)
-    )
+    print("Reading data: d_product_details")
+    d_product_details = pd.read_parquet(path.join(curation_path, CurationFileNames.d_product_details))
+    print("Enriching data: f_order_picks")
+    f_order_picks = f_order_picks.merge(d_product_details, on="product_id", how="left")
+    print("Reading data: d_warehouse_section")
+    d_warehouse_section = pd.read_parquet(path.join(curation_path, CurationFileNames.d_warehouse_section))
+    print("Reading data: f_returns")
     f_returns = pd.read_parquet(path.join(curation_path, CurationFileNames.f_returns))
-    f_pick_errors = pd.read_parquet(
-        path.join(curation_path, CurationFileNames.f_pick_errors)
-    )
+    print("Reading data: f_pick_errors")
+    f_pick_errors = pd.read_parquet(path.join(curation_path, CurationFileNames.f_pick_errors))
+    print("Enriching data: f_pick_errors")
+    f_pick_errors = f_pick_errors.merge(d_product_details, on="product_id", how="left")
 
-    # Execute Data Mart Transformations
-    # total_pick_volume(pick_df=f_order_picks, d_date=d_date)
-    # pick_volume_per_product_group(
-    #     d_date=d_date, pick_df=f_order_picks, product_df=d_product_details
-    # )
-    # warehouse_utilization_per_section(f_order_picks=f_order_picks, d_date=d_date)
-    # d_warehouse_utilization_per_section = pd.read_parquet(
-    #     path.join(curation_path, CurationFileNames.warehouse_utilization_per_section)
-    # )
-
-    # pick_error_per_warehouse_sections(d_date=d_date, f_pick_errors=f_pick_errors, f_order_picks=f_order_picks)
-    # d_pick_error_per_warehouse_sections = pd.read_parquet(
-    #     path.join(curation_path, CurationFileNames.pick_error_per_warehouse_sections)
-    # )
-    # total_orders_processed( f_order_picks=f_order_picks, d_date=d_date)
-    # total_orders_processed = pd.read_parquet(
-    #         path.join(data_mart_path, "total_orders_processed.parquet")
-    #     )
-    top_10_products(f_order_picks=f_order_picks, d_date=d_date)
-    top_10_products = pd.read_parquet(
-            path.join(data_mart_path, "top_10_products.parquet")
-        )
-    # order_volume(pick_df=f_order_picks, d_date=d_date)
-    # binned_order_volume(pick_df=f_order_picks, d_date=d_date)
-    # weekly_zscore_distribution(pick_df=f_order_picks, d_date=d_date)
-    # error_rate_per_warehouse_section(
-    #     f_order_picks,
-    #     f_pick_errors,
-    #     d_date,
-    #     d_warehouse_section,
-    # )
+    print("Starting Transformations")
+    total_pick_volume(f_order_picks=f_order_picks, d_date=d_date)
+    total_orders_processed(d_date=d_date, f_order_picks=f_order_picks)
+    pick_errors(f_order_picks=f_order_picks, d_date=d_date, f_pick_errors = f_pick_errors )
+    top_n_products_weekly(f_order_picks=f_order_picks, d_date=d_date)
+    avg_products_picked_per_order(f_order_picks=f_order_picks, d_date=d_date)
+    order_mix_per_origin(f_order_picks=f_order_picks, d_date=d_date)
+    warehouse_utilization_per_section(f_order_picks=f_order_picks, d_date=d_date)
+    pick_throughput(f_order_picks=f_order_picks, d_date=d_date)
+    binned_order_volume(f_order_picks=f_order_picks, d_date=d_date)
+    weekly_zscore_distribution(f_order_picks=f_order_picks, d_date=d_date)
+    print("\n\nCompleted all transformations!")
+  

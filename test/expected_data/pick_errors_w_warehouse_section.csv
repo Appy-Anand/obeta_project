@@ -1,0 +1,4 @@
+date,week,month,warehouse_section,total_errors,total_picks
+2018-01-30,2018_05,2018_01,AKL,4,29.0
+2018-01-30,2018_05,2018_01,HRL,1,8.0
+2018-01-30,2018_05,2018_01,Manuell,1,

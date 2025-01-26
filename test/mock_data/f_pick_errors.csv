@@ -1,0 +1,7 @@
+product_id,warehouse_section,origin,order_number,position_in_order,pick_volume,quantity_unit,pick_timestamp,pick_date,sk_order_id,sk_position_in_order,description,product_group
+232357,AKL,48,08202478,0005,0,St,2018-01-30 15:27:24,2018-01-30,08202478_2018,5,NIEDAX Hängestiel HUF50/400,31_Install.-Befestigungs-Mat.
+666023,AKL,46,08196941,0001,0,Mt,2018-01-30 04:04:56,2018-01-30,08196941_2018,3,LSP 2X2 5TR 100m Lautsprechlg,38_Leitungen
+D72590,Manuell,48,08196537,0002,0,Mt,2018-01-30 03:42:41,2018-01-30,08196537_2018,2,NIEDAX Profil 2000mm U50/2000,31_Install.-Befestigungs-Mat.
+F22429,AKL,48,08204769,0025,0,St,2018-01-30 17:56:24,2018-01-30,08204769_2018,36,OBO Sechskschrb+Mutt SKS10x80,31_Install.-Befestigungs-Mat.
+H19820,HRL,48,08203850,0001,0,St,2018-01-30 16:05:51,2018-01-30,08203850_2018,1,RIT Schaltschrank ES AE1004600,34_Verteiler_Schränke
+Z02895,AKL,46,08197036,0003,0,St,2018-01-30 03:59:56,2018-01-30,08197036_2018,6,Cat6 24P Patchpanel LSA 1HE,42_Netzwerktechnik

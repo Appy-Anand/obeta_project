@@ -1,3 +1,13 @@
+"""
+A collection of helper functions used across the project for:
+- String manipulation
+- File operations
+- Data validation
+- Logging and error handling
+
+These utility functions are designed to be generic enough for reuse in different
+parts of the codebase.
+"""
 import logging
 
 

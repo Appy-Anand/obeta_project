@@ -1,3 +1,28 @@
+"""
+This script handles the **curation phase** of the ETL process,
+where data from the staging layer is integrated, cleaned,
+and transformed into a star schema format for analytics.
+
+Key Responsibilities:
+1. Read staged Parquet files from the staging layer.
+2. Perform advanced cleaning and transformations:
+   - Create surrogate keys for dimensions.
+   - Normalize and standardize data.
+   - Flag and handle errors (e.g., rows with zero or negative pick volumes).
+3. Create dimension and fact tables:
+   - Date dimension (d_date)
+   - Product details dimension (d_product_details)
+   - Warehouse sections dimension (d_warehouse_section)
+   - Fact tables: f_order_picks, f_returns, and f_pick_errors.
+4. Save curated datasets into the curation directory.
+
+Outputs:
+- Curated datasets ready for analytics and data mart generation.
+
+Dependencies:
+- Constants and configurations from `constants.py`.
+- Logger utility for tracking ETL progress and errors.
+"""
 from os import mkdir, path
 
 import pandas as pd

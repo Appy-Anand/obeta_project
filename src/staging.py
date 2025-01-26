@@ -1,3 +1,24 @@
+"""
+It reads raw CSV files, applies initial cleaning and transformations,
+and saves the processed data as Parquet files for the next ETL phase.
+
+Key Responsibilities:
+1. Read raw data from the source directory.
+2. Perform basic transformations such as:
+   - Renaming columns for consistency.
+   - Parsing dates and timestamps.
+   - Standardizing data types.
+3. Handle encoding issues and invalid characters (e.g., German umlauts).
+4. Save cleaned data into the staging directory as Parquet files for efficient storage and retrieval.
+
+Outputs:
+- Cleaned data stored in the staging layer for further processing in the curation phase.
+
+Dependencies:
+- Constants and configurations defined in `constants.py`.
+- Logger utility from `utils.py` to track ETL progress and issues.
+"""
+
 from os import path, mkdir
 import pandas as pd
 from constants import (

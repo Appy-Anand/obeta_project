@@ -140,17 +140,18 @@ def create_d_warehouse_section():
     # Check for empty data
     if stg_df.empty:
         logger.warning("Staging data for warehouse section is empty. No data will be written to curation.")
+        return
     # Write to curation
-        try:
-            stg_df.to_parquet(
-                path.join(curation_path, CurationFileNames.d_warehouse_section), index=False
-            )
-            logger.info(f"Writing d_warehouse_section data to {CurationFileNames.d_warehouse_section}.")
-        except Exception as e:
-            logger.error(f"An error occurred while writing curation data: {e}")
-            raise
+    try:
+        stg_df.to_parquet(
+            path.join(curation_path, CurationFileNames.d_warehouse_section), index=False
+        )
+        logger.info(f"Writing d_warehouse_section data to {CurationFileNames.d_warehouse_section}.")
+    except Exception as e:
+        logger.error(f"An error occurred while writing curation data: {e}")
+        raise
     # Log completion
-        logger.info("Creation of d_warehouse_section dimension table completed successfully.")
+    logger.info("Creation of d_warehouse_section dimension table completed successfully.")
 
 
 def create_d_product_details():

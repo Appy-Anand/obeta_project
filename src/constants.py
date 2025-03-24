@@ -47,4 +47,4 @@ WAREHOUSE_SECTION_COLUMNS = ["abbreviation", "description", "group", "pick_refer
 WAREHOUSE_SECTION_SCHEMA = {i: str for i in WAREHOUSE_SECTION_COLUMNS}
 
 # Base path for source and processed data
-BASE_PATH = "/Users/aprajita/Desktop/APRAJITA_DA_PROJ/obeta-group-5/data"
+BASE_PATH = "/Users/aprajita/Desktop/Aprajita_Obeta/obeta_project/data"
